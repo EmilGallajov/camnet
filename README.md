@@ -103,6 +103,29 @@ hakaton/
    └─ Dockerfile
 ```
 
+## Testing
+
+41 tests cover every feature — 31 fast unit tests (mocked, no Batfish/Gemini)
+and 10 live integration tests (real Batfish + PDF + separated-session simulation).
+
+```bash
+# with the stack running (docker compose up), run inside the app container:
+docker exec camnet-app pip install -q pytest requests
+docker cp tests camnet-app:/app/tests
+docker exec camnet-app python -m pytest /app/tests -q
+```
+
+- `tests/test_unit.py` — intent parsing & negation, assertion detail + device
+  filtering, mock threat scoring, key scrubbing, inventory/chats CRUD, Jinja2
+  template management, the ReAct agent (routing/responder), and every API route
+  via the Flask test client (analyze, chat, topology, inventory, templates,
+  agent-prompt, config edit, global error handler).
+- `tests/test_live.py` — end-to-end against the running stack: analyze finds the
+  planted faults, OSPF topology shows the red `AREA_MISMATCH` edge, PDF renders,
+  rich device details, chat respects "no PDF", chat history persists, and the
+  separated-session what-if simulation detects a duplicate router-id / resolves
+  the area mismatch (skips automatically if the stack is down).
+
 ## Notes / limits (MVP)
 
 - State is in-memory (single worker) — fine for a demo.

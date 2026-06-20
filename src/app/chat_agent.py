@@ -97,7 +97,10 @@ def assertion_blocks(analysis, devices=None, include_passed=False):
             continue
         passed, bad = _state(key, entry)
         bad = _filter_by_devices(bad, devices)
-        if passed is False or (passed is None and bad):
+        # When filtering by device, only show a failure if it actually has
+        # matching records for that device.
+        show_fail = passed is False and (bad or not devices)
+        if show_fail or (passed is None and bad):
             cols = list(bad[0].keys()) if bad else []
             blocks.append({
                 "type": "assertion",
