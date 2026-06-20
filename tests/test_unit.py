@@ -3,9 +3,11 @@
 External dependencies (Batfish engine, Gemini API) are monkeypatched so these
 run anywhere the Python deps are installed. Run: python -m pytest tests/test_unit.py
 """
+import io
 import json
 import os
 import sys
+import zipfile
 
 import pytest
 
@@ -319,3 +321,70 @@ def test_global_error_handler_returns_json(client):
     r = client.get("/api/definitely-not-a-route")
     assert r.status_code == 404
     assert r.get_json()["ok"] is False
+
+
+# --------------------------------------------------------------------------
+# Security
+# --------------------------------------------------------------------------
+def test_safe_host_blocks_traversal():
+    assert appmod._safe_host("payment-edge-r3") == "payment-edge-r3"
+    assert appmod._safe_host("..") is None
+    assert appmod._safe_host("") is None
+    # traversal attempts can never escape the dir (no separators / no '..')
+    for bad in ("../etc/passwd", "a/b/c", "..\\..\\win.ini", "x/../../y"):
+        out = appmod._safe_host(bad)
+        assert out is None or ("/" not in out and "\\" not in out and out != "..")
+
+
+def test_ext_allowlist():
+    assert appmod._ext_ok("router.cfg") and appmod._ext_ok("r1")  # blank ext ok
+    assert not appmod._ext_ok("evil.exe") and not appmod._ext_ok("x.sh")
+
+
+def test_request_size_cap_configured():
+    assert appmod.app.config["MAX_CONTENT_LENGTH"] == 16 * 1024 * 1024
+
+
+def test_upload_rejects_bad_extension(client):
+    r = client.post("/api/upload", content_type="multipart/form-data",
+                    data={"file": (io.BytesIO(b"MZbinary"), "evil.exe")})
+    assert r.status_code == 400
+
+
+def test_upload_rejects_oversize_file(client):
+    big = io.BytesIO(b"a" * (appmod.MAX_FILE_BYTES + 100))
+    r = client.post("/api/upload", content_type="multipart/form-data",
+                    data={"file": (big, "huge.cfg")})
+    assert r.status_code == 400
+
+
+def test_upload_zip_too_many_files_rejected(client):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for i in range(appmod.MAX_UPLOAD_FILES + 5):
+            z.writestr(f"r{i}.cfg", f"hostname r{i}\n")
+    buf.seek(0)
+    r = client.post("/api/upload", content_type="multipart/form-data",
+                    data={"file": (buf, "bomb.zip")})
+    assert r.status_code == 400
+    assert "too many" in r.get_json()["error"].lower()
+
+
+def test_upload_zip_basename_only_no_zip_slip(client, tmp_path):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("../../../escape.cfg", "hostname escaped\n")  # Zip Slip attempt
+    buf.seek(0)
+    r = client.post("/api/upload", content_type="multipart/form-data",
+                    data={"file": (buf, "slip.zip")})
+    assert r.status_code == 200
+    # file must land inside the (isolated) ingest dir as a basename, not escape it
+    assert os.path.exists(os.path.join(appmod.INGEST_CONFIGS, "escape.cfg"))
+
+
+def test_report_template_sandbox_blocks_ssti():
+    # A malicious template trying to break out via dunder access must NOT render.
+    report.save_template_text("{{ ().__class__.__bases__[0].__subclasses__() }}")
+    with pytest.raises(Exception):
+        report.render_html(FAKE_ANALYSIS, FAKE_THREATS, [])
+    report.reset_template()

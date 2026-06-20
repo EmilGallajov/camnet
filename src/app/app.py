@@ -34,9 +34,32 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(INGEST_CONFIGS, exist_ok=True)
 
 app = Flask(__name__, template_folder="templates")
+# Cap every request body (uploads, config PUTs, chat) — defends against
+# memory-exhaustion DoS. Oversized requests get a 413 (handled as JSON below).
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
 engine = CamNetEngine()
 
+# Upload hardening (zip-bomb / type / count limits).
+ALLOWED_UPLOAD_EXT = {".cfg", ".conf", ".txt", ".ios", ".nxos", ".cisco",
+                      ".juniper", ".arista", ".log", ""}
+MAX_UPLOAD_FILES = 200
+MAX_FILE_BYTES = 2 * 1024 * 1024          # 2 MB per config
+MAX_TOTAL_UNZIP_BYTES = 32 * 1024 * 1024  # 32 MB total uncompressed
+_HOST_RE = re.compile(r"[A-Za-z0-9._-]{1,80}\Z")
+
 STATE = {"analysis": None, "threats": None, "active_source": "local"}
+
+
+def _safe_host(host):
+    """Sanitize a hostname used in filesystem paths — blocks traversal."""
+    h = os.path.basename((host or "").strip())
+    if h in ("", ".", "..") or not _HOST_RE.match(h):
+        return None
+    return h
+
+
+def _ext_ok(name):
+    return os.path.splitext(name)[1].lower() in ALLOWED_UPLOAD_EXT
 CHAT_LOG = []
 _lock = threading.Lock()
 
@@ -168,36 +191,64 @@ def analyze():
 # --------------------------------------------------------------------------
 # Ingest: ZIP upload + SSH pull
 # --------------------------------------------------------------------------
+def _extract_zip(z):
+    """Safely extract config files from a zip: basename-only (no Zip Slip),
+    extension allowlist, per-file + total uncompressed size caps, file count
+    cap (zip-bomb defense)."""
+    infos = [i for i in z.infolist() if not i.is_dir()]
+    if len(infos) > MAX_UPLOAD_FILES:
+        raise ValueError(f"too many files in zip (> {MAX_UPLOAD_FILES})")
+    total, saved = 0, 0
+    for info in infos:
+        name = os.path.basename(info.filename)  # strips any path → no traversal
+        if not name or name.startswith(".") or not _ext_ok(name):
+            continue
+        if info.file_size > MAX_FILE_BYTES:
+            raise ValueError(f"'{name}' exceeds per-file limit")
+        total += info.file_size
+        if total > MAX_TOTAL_UNZIP_BYTES:
+            raise ValueError("zip uncompressed size too large")
+        with z.open(info) as src:
+            data = src.read(MAX_FILE_BYTES + 1)   # cap actual read (lying headers)
+        if len(data) > MAX_FILE_BYTES:
+            raise ValueError(f"'{name}' exceeds per-file limit")
+        with open(os.path.join(INGEST_CONFIGS, name), "wb") as dst:
+            dst.write(data)
+        saved += 1
+    return saved
+
+
 @app.route("/api/upload", methods=["POST"])
 def upload():
     f = request.files.get("file")
     if not f or not f.filename:
         return jsonify({"error": "No file provided"}), 400
-    saved = 0
     try:
         if f.filename.lower().endswith(".zip"):
             with zipfile.ZipFile(f.stream) as z:
-                for member in z.namelist():
-                    if member.endswith("/"):
-                        continue
-                    name = os.path.basename(member)
-                    if not name or name.startswith("."):
-                        continue
-                    with z.open(member) as src, open(
-                            os.path.join(INGEST_CONFIGS, name), "wb") as dst:
-                        shutil.copyfileobj(src, dst)
-                        saved += 1
-        else:  # single config file
+                saved = _extract_zip(z)
+        else:
             name = os.path.basename(f.filename)
-            f.save(os.path.join(INGEST_CONFIGS, name))
+            if not _ext_ok(name):
+                return jsonify({"error": "unsupported file type"}), 400
+            data = f.stream.read(MAX_FILE_BYTES + 1)
+            if len(data) > MAX_FILE_BYTES:
+                return jsonify({"error": "file too large"}), 400
+            with open(os.path.join(INGEST_CONFIGS, name), "wb") as dst:
+                dst.write(data)
             saved = 1
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except zipfile.BadZipFile:
+        return jsonify({"error": "invalid zip archive"}), 400
     except Exception as e:  # noqa: BLE001
-        return jsonify({"error": f"Upload failed: {e}"}), 400
+        return jsonify({"error": f"Upload failed: {llm._scrub(str(e))}"}), 400
 
     if saved == 0:
-        return jsonify({"error": "No usable files found in upload"}), 400
+        return jsonify({"error": "No usable config files found in upload"}), 400
     STATE["active_source"] = "ingested"
-    inventory.add_event("upload", f"Uploaded {saved} config file(s) via {f.filename}.")
+    inventory.add_event("upload", f"Uploaded {saved} config file(s) via "
+                        f"{os.path.basename(f.filename)}.")
     return jsonify({"saved": saved, "active_source": "ingested"})
 
 
@@ -288,6 +339,9 @@ def report():
 # --------------------------------------------------------------------------
 @app.route("/api/device/<host>/details")
 def device_details(host):
+    host = _safe_host(host)
+    if not host:
+        return jsonify({"error": "invalid hostname"}), 400
     try:
         if not STATE["analysis"]:
             inv = inventory.get_device(host)
@@ -299,11 +353,14 @@ def device_details(host):
                                 "note": "Run analysis for full details."})
         return jsonify(_json_safe(engine.device_details(host)))
     except Exception as e:  # noqa: BLE001
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": llm._scrub(str(e))}), 500
 
 
 def _find_config(host):
     """Locate a device's config file, preferring the editable ingest copy."""
+    host = _safe_host(host)
+    if not host:
+        return None, False
     cand = os.path.join(INGEST_CONFIGS, f"{host}.cfg")
     if os.path.exists(cand):
         return cand, True
@@ -338,8 +395,13 @@ def get_device_config(host):
 
 @app.route("/api/device/<host>/config", methods=["PUT"])
 def put_device_config(host):
+    host = _safe_host(host)
+    if not host:
+        return jsonify({"error": "invalid hostname"}), 400
     body = request.get_json(silent=True) or {}
     text = body.get("config", "")
+    if len(text) > MAX_FILE_BYTES:
+        return jsonify({"error": "config too large"}), 400
     os.makedirs(INGEST_CONFIGS, exist_ok=True)
     out = os.path.join(INGEST_CONFIGS, f"{host}.cfg")
     with open(out, "w") as f:
@@ -353,6 +415,9 @@ def put_device_config(host):
 
 @app.route("/api/inventory/<host>", methods=["DELETE"])
 def delete_device(host):
+    host = _safe_host(host)
+    if not host:
+        return jsonify({"error": "invalid hostname"}), 400
     inventory.delete_device(host)
     # also drop an ingested config copy if present
     cand = os.path.join(INGEST_CONFIGS, f"{host}.cfg")

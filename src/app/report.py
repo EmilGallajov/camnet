@@ -5,7 +5,8 @@ Edit templates/report.html.j2 to fully restyle the report (plain HTML/CSS).
 import os
 from datetime import datetime
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import FileSystemLoader, select_autoescape
+from jinja2.sandbox import SandboxedEnvironment
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "templates")
 TOPO_DIR = os.environ.get("TOPO_DIR", "/app/topologies")
@@ -13,7 +14,9 @@ DATA_DIR = os.environ.get("DATA_DIR", "/app/data")
 DEFAULT_TPL = os.path.join(TEMPLATE_DIR, "report.html.j2")
 USER_TPL = os.path.join(DATA_DIR, "report.html.j2")
 
-_env = Environment(
+# Sandboxed: the report template is user-editable, so block SSTI escapes
+# (access to __class__, __globals__, etc.) when rendering it.
+_env = SandboxedEnvironment(
     loader=FileSystemLoader(TEMPLATE_DIR),
     autoescape=select_autoescape(["html", "j2"]),
 )
