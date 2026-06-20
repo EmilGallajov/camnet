@@ -1,0 +1,31 @@
+services:
+  batfish:
+    image: batfish/allinone:latest
+    container_name: camnet-batfish
+    ports:
+      - "9997:9997"
+      - "9996:9996"
+    restart: unless-stopped
+
+  app:
+    build: ./src/app
+    container_name: camnet-app
+    environment:
+      - BATFISH_HOST=batfish
+      - LOCAL_CONFIG_DIR=/app/configs
+      - TOPO_DIR=/app/topologies
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash}
+    volumes:
+      - ./configs:/app/configs:ro
+      - camnet-data:/app/data
+      - camnet-uploads:/app/uploads
+    ports:
+      - "8080:8080"
+    depends_on:
+      - batfish
+    restart: unless-stopped
+
+volumes:
+  camnet-data:
+  camnet-uploads:

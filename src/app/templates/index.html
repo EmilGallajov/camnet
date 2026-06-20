@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CamNet — Network Intelligence Console</title>
+<style>
+  /* ---- 2010s / MSN-XP era skin ---- */
+  body{margin:0;font-family:Tahoma,Verdana,Geneva,Arial,sans-serif;font-size:12px;
+       background:#ece9d8;color:#2b2b2b;height:100vh;overflow:hidden}
+  .titlebar{background:linear-gradient(#3a6ea5,#1c4d8a);color:#fff;
+            padding:6px 12px;display:flex;align-items:center;gap:8px;
+            border-bottom:2px solid #0c3a6e}
+  .titlebar .logo{width:22px;height:22px;background:#ffd24a;border:1px solid #b8860b;
+                  border-radius:3px;display:flex;align-items:center;justify-content:center;
+                  font-weight:bold;color:#5a3d00;font-size:13px}
+  .titlebar b{font-size:15px;letter-spacing:.2px}
+  .titlebar small{color:#cfe3ff;margin-left:6px}
+  .layout{display:grid;grid-template-columns:286px 1fr;height:calc(100vh - 35px)}
+
+  /* ---- sidebar ---- */
+  .side{background:#f4f3ea;border-right:1px solid #aca999;overflow-y:auto;padding:8px}
+  .group{margin-bottom:9px;background:#fff;border:1px solid #b9b6a6}
+  .group > h3{margin:0;background:linear-gradient(#eef3fb,#cdddf0);
+              border-bottom:1px solid #9bb4d0;color:#1c4d8a;font-size:12px;
+              padding:5px 8px;cursor:pointer;display:flex;align-items:center;gap:6px}
+  .group > h3 .arrow{font-size:9px;color:#5a7fa5}
+  .group .body{padding:8px;display:block}
+  .group.collapsed .body{display:none}
+
+  .row{display:flex;align-items:center;gap:6px;margin:3px 0}
+  .led{width:9px;height:9px;border-radius:50%;background:#aaa;border:1px solid #777}
+  .led.on{background:#43c043;border-color:#2a8a2a}
+  .led.off{background:#d84a4a;border-color:#a03030}
+  .muted{color:#777}
+  label.fld{display:block;margin:5px 0 1px;color:#555;font-size:11px}
+  input[type=text],input[type=password],input[type=file],select{
+     width:100%;box-sizing:border-box;border:1px solid #8a96a8;background:#fff;
+     padding:4px;font-family:inherit;font-size:11px;border-radius:2px}
+  .btn{font-family:inherit;font-size:11px;padding:4px 10px;cursor:pointer;
+       border:1px solid #707070;border-radius:3px;
+       background:linear-gradient(#fdfdfd,#dcdcdc);color:#222}
+  .btn:hover{background:linear-gradient(#fff,#e8e8e8)}
+  .btn:active{background:linear-gradient(#d2d2d2,#ececec)}
+  .btn.primary{border-color:#2a6db0;color:#fff;
+       background:linear-gradient(#4a90d9,#2a6db0);font-weight:bold}
+  .btn.primary:hover{background:linear-gradient(#5a9fe8,#2f78bd)}
+  .btn.block{display:block;width:100%;box-sizing:border-box;margin-top:6px}
+  .tabbtns{display:flex;gap:4px;margin-bottom:6px}
+  .tabbtns .btn{flex:1}
+  .pane{display:none}.pane.active{display:block}
+
+  .devitem{padding:4px 6px;border:1px solid #d7d4c4;background:#fbfbf6;margin:3px 0;
+           cursor:pointer;border-radius:2px}
+  .devitem:hover{background:#eef3fb;border-color:#9bb4d0}
+  .devitem b{color:#1c4d8a}
+  .devitem .ip{color:#666;font-family:Consolas,monospace;font-size:10px}
+  .tag{font-size:9px;background:#e3e0d0;border:1px solid #c5c2b2;border-radius:8px;
+       padding:0 6px;color:#555;margin-left:4px}
+  .logitem{font-size:10px;color:#555;padding:2px 0;border-bottom:1px dotted #ddd}
+  .logitem .k{color:#1c4d8a;font-weight:bold}
+  .lnk{color:#1455a0;text-decoration:underline;cursor:pointer;font-size:11px;display:block;margin:2px 0}
+  .chatitem{display:flex;align-items:center;gap:4px;padding:4px 6px;border:1px solid #d7d4c4;
+            background:#fbfbf6;margin:3px 0;border-radius:2px;cursor:pointer;font-size:11px}
+  .chatitem:hover{background:#eef3fb;border-color:#9bb4d0}
+  .chatitem.active{background:#dcebfb;border-color:#a9c3ec}
+  .chatitem .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chatitem .d{color:#aaa;border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
+  .chatitem .d:hover{color:#922}
+
+  /* ---- chat ---- */
+  .main{display:flex;flex-direction:column;background:#ffffff;min-width:0;
+        min-height:0;overflow:hidden}
+  .chathead{background:linear-gradient(#f7f7ef,#e7e5d6);border-bottom:1px solid #c7c4b4;
+            padding:6px 12px;display:flex;align-items:center;gap:10px}
+  .chathead b{color:#1c4d8a}
+  .badge{margin-left:auto;font-size:11px;padding:2px 9px;border-radius:9px;border:1px solid #bbb;background:#f0f0f0}
+  .badge.High{background:#fad9d6;border-color:#c0392b;color:#922}
+  .badge.Medium{background:#fdeccb;border-color:#d68910;color:#8a5800}
+  .badge.Low{background:#d6e6f5;border-color:#2980b9;color:#1a557e}
+  .chat{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;background:#fcfcf8}
+  .turn{margin:9px 0;max-width:84%}
+  .turn .who{font-size:10px;color:#888;margin:0 0 2px 3px}
+  .bubble{padding:8px 11px;border-radius:8px;font-size:12px;line-height:1.5;white-space:normal}
+  .turn.user{margin-left:auto;text-align:right}
+  .turn.user .bubble{display:inline-block;text-align:left;background:#dcebfb;border:1px solid #a9c3ec}
+  .turn.bot .bubble{background:#fffef2;border:1px solid #e3dfc4}
+  .bubble code{background:#eef0e6;padding:1px 4px;border-radius:3px;font-family:Consolas,monospace}
+  .bubble b,.bubble strong{color:#1c4d8a}
+  .bubble ul{margin:4px 0;padding-left:18px}
+
+  .att-link{display:inline-block;margin:5px 14px 0 0;color:#1455a0;
+            text-decoration:underline;font-size:12px;cursor:pointer}
+  .att-link:hover{color:#0d3d78}
+  .att-link:visited{color:#1455a0}
+  .assert{margin:8px 0;border:1px solid #d9b8b3;border-left:4px solid #c0392b;background:#fff7f6;border-radius:3px}
+  .assert.pass{border-color:#b6d9b6;border-left-color:#27ae60;background:#f6fbf6}
+  .assert h4{margin:0;padding:6px 9px;font-family:Consolas,monospace;font-size:12px;
+             color:#922;background:#fbeae8;border-bottom:1px solid #e7cfcb}
+  .assert.pass h4{color:#1e6b34;background:#eaf6ea;border-color:#cfe7cf}
+  .assert .desc{padding:5px 9px;color:#555;font-size:11px}
+  .assert .msg{padding:0 9px 6px;color:#922;font-size:11px}
+  .assert.pass .msg{color:#1e6b34}
+  .assert table{width:100%;border-collapse:collapse;font-size:10px}
+  .assert th{background:#7d2820;color:#fff;text-align:left;padding:3px 6px}
+  .assert.pass th{background:#1e6b34}
+  .assert td{border-bottom:1px solid #eee;padding:3px 6px;font-family:Consolas,monospace}
+  .scrollx{overflow-x:auto}
+
+  .composer{display:flex;gap:6px;padding:9px 12px;border-top:1px solid #c7c4b4;background:#f2f1e8}
+  .composer input{flex:1}
+  .chips{padding:0 12px 8px;background:#f2f1e8}
+  .chip{display:inline-block;margin:0 5px 5px 0;padding:3px 9px;border:1px solid #b9b6a6;
+        background:#fff;border-radius:10px;cursor:pointer;font-size:11px;color:#1455a0}
+  .chip:hover{background:#eef3fb}
+  .typing{color:#999;font-style:italic;font-size:11px;margin:6px 3px}
+
+  /* device row actions */
+  .devitem .acts{float:right;display:flex;gap:3px}
+  .iconbtn{border:1px solid #b9b6a6;background:#fff;border-radius:3px;cursor:pointer;
+           font-size:10px;padding:0 5px;line-height:16px;color:#444}
+  .iconbtn:hover{background:#eef3fb;border-color:#9bb4d0}
+  .iconbtn.del:hover{background:#fbe2e0;border-color:#e0a59f;color:#922}
+
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(20,30,50,.45);display:none;
+           align-items:center;justify-content:center;z-index:50}
+  .overlay.show{display:flex}
+  .modal{background:#f4f3ea;border:1px solid #8a96a8;border-radius:4px;width:780px;
+         max-width:94vw;max-height:90vh;display:flex;flex-direction:column;
+         box-shadow:0 8px 30px rgba(0,0,0,.35)}
+  .modal .mhead{background:linear-gradient(#3a6ea5,#1c4d8a);color:#fff;padding:7px 12px;
+                font-weight:bold;display:flex;align-items:center;gap:8px;border-radius:3px 3px 0 0}
+  .modal .mhead .x{margin-left:auto;cursor:pointer;border:1px solid #cfe3ff;
+                   background:#1c4d8a;color:#fff;border-radius:3px;padding:0 7px;line-height:18px}
+  .modal .mbody{padding:10px;overflow:auto}
+  .tabs{display:flex;gap:3px;border-bottom:1px solid #b9b6a6;margin-bottom:8px;flex-wrap:wrap}
+  .tab{padding:4px 10px;cursor:pointer;border:1px solid transparent;border-bottom:none;
+       font-size:11px;color:#1455a0}
+  .tab.active{background:#fff;border-color:#b9b6a6;border-radius:3px 3px 0 0;color:#222;font-weight:bold}
+  .tabpane{display:none}.tabpane.active{display:block}
+  .dtable{width:100%;border-collapse:collapse;font-size:10.5px}
+  .dtable th{background:#1a5276;color:#fff;text-align:left;padding:3px 6px;position:sticky;top:0}
+  .dtable td{border-bottom:1px solid #e2dfce;padding:3px 6px;font-family:Consolas,monospace}
+  .dtable tr:nth-child(even) td{background:#faf9f2}
+  .scrollbox{max-height:46vh;overflow:auto;border:1px solid #ddd;background:#fff}
+  textarea.code{width:100%;height:46vh;font-family:Consolas,monospace;font-size:11px;
+                border:1px solid #8a96a8;padding:6px;box-sizing:border-box;background:#fff}
+  .mfoot{padding:8px 10px;border-top:1px solid #b9b6a6;display:flex;gap:6px;align-items:center}
+  .mfoot .muted{margin-right:auto}
+  .kv{font-size:11px;margin:3px 0}.kv b{color:#1c4d8a}
+  .chipline{margin:4px 0}
+  .chiptag{display:inline-block;background:#dcebfb;border:1px solid #a9c3ec;border-radius:9px;
+           padding:1px 8px;font-size:10px;margin-right:4px;color:#1c4d8a}
+</style>
+</head>
+<body>
+  <div class="titlebar">
+    <div class="logo">C</div>
+    <b>CamNet</b><small>Smart-City Network Intelligence Console</small>
+  </div>
+
+  <div class="layout">
+    <!-- ===================== SIDEBAR ===================== -->
+    <div class="side">
+
+      <div class="group" id="g-status">
+        <h3 onclick="toggle('g-status')"><span class="arrow">▼</span> Status</h3>
+        <div class="body">
+          <div class="row"><span class="led" id="led-bf"></span> Batfish digital twin <span class="muted" id="s-bf">…</span></div>
+          <div class="row"><span class="led" id="led-gm"></span> Gemini AI <span class="muted" id="s-gm">…</span></div>
+          <div class="row muted">Config source: <b id="s-src">local</b></div>
+          <div class="row muted">Devices: <b id="s-dev">0</b></div>
+        </div>
+      </div>
+
+      <div class="group" id="g-chats">
+        <h3 onclick="toggle('g-chats')"><span class="arrow">▼</span> 💬 Chats</h3>
+        <div class="body">
+          <button class="btn primary block" onclick="newChat()" style="margin-top:0">＋ New chat</button>
+          <div id="chatlist" style="margin-top:6px"><div class="muted">No chats yet.</div></div>
+        </div>
+      </div>
+
+      <div class="group" id="g-add">
+        <h3 onclick="toggle('g-add')"><span class="arrow">▼</span> ➕ Add configs</h3>
+        <div class="body">
+          <div class="tabbtns">
+            <button class="btn" onclick="pane('p-zip')">Upload .zip</button>
+            <button class="btn" onclick="pane('p-ssh')">SSH pull</button>
+          </div>
+          <div class="pane active" id="p-zip">
+            <input type="file" id="zipFile" accept=".zip,.cfg,.conf,.txt">
+            <button class="btn primary block" onclick="doUpload()">Upload &amp; ingest</button>
+          </div>
+          <div class="pane" id="p-ssh">
+            <label class="fld">Host / IP</label><input type="text" id="ssh-host" placeholder="10.0.0.1">
+            <label class="fld">Username</label><input type="text" id="ssh-user">
+            <label class="fld">Password</label><input type="password" id="ssh-pass">
+            <label class="fld">Device type</label>
+            <select id="ssh-type">
+              <option value="cisco_ios">cisco_ios</option>
+              <option value="cisco_xe">cisco_xe</option>
+              <option value="cisco_nxos">cisco_nxos</option>
+              <option value="arista_eos">arista_eos</option>
+              <option value="juniper_junos">juniper_junos</option>
+            </select>
+            <button class="btn primary block" onclick="doSsh()">SSH &amp; pull config</button>
+          </div>
+          <hr style="border:none;border-top:1px solid #ddd;margin:8px 0">
+          <button class="btn primary block" onclick="runAnalysis()" id="runBtn">▶ Run analysis</button>
+          <button class="btn block" onclick="resetSource()">Use bundled samples</button>
+        </div>
+      </div>
+
+      <div class="group" id="g-dev">
+        <h3 onclick="toggle('g-dev')"><span class="arrow">▼</span> 🖥 Devices &amp; IPs</h3>
+        <div class="body" id="devlist"><div class="muted">No devices yet.</div></div>
+      </div>
+
+      <div class="group" id="g-rep">
+        <h3 onclick="toggle('g-rep')"><span class="arrow">▼</span> 📄 Reports</h3>
+        <div class="body" id="replist"><div class="muted">No reports yet.</div></div>
+      </div>
+
+      <div class="group" id="g-cust">
+        <h3 onclick="toggle('g-cust')"><span class="arrow">▼</span> 🛠 Customize</h3>
+        <div class="body">
+          <a class="lnk" onclick="openTemplate()">✎ Edit PDF report template (Jinja2)</a>
+          <a class="lnk" onclick="openPrompt()">🤖 Edit AI agent prompt</a>
+        </div>
+      </div>
+
+      <div class="group collapsed" id="g-log">
+        <h3 onclick="toggle('g-log')"><span class="arrow">▶</span> 🧾 Activity log</h3>
+        <div class="body" id="loglist"><div class="muted">—</div></div>
+      </div>
+    </div>
+
+    <!-- ===================== CHAT ===================== -->
+    <div class="main">
+      <div class="chathead">
+        <b>AI Assistant</b><span class="muted">- ask in plain language</span>
+        <span class="badge" id="riskBadge">no analysis</span>
+      </div>
+      <div class="chat" id="chat">
+        <div class="turn bot"><div class="who">CamNet</div><div class="bubble">
+          Welcome 👋 I'm your network assistant. Add configs (left) or just say
+          <b>run analysis</b> to use the bundled smart-city sample. Then ask me to
+          <b>check misconfigurations</b>, <b>show ospf topology</b>, list devices,
+          or <b>generate a PDF</b>. Type <b>help</b> anytime.
+        </div></div>
+      </div>
+      <div class="chips" id="chips"></div>
+      <div class="composer">
+        <input type="text" id="msg" placeholder="Type a request… e.g. check misconfigurations on payment-edge-r3"
+               onkeydown="if(event.key==='Enter')send()">
+        <button class="btn primary" onclick="send()">Send</button>
+      </div>
+    </div>
+  </div>
+
+<!-- ===================== DEVICE MODAL ===================== -->
+<div class="overlay" id="devModal">
+  <div class="modal">
+    <div class="mhead">🖥 <span id="dm-title">Device</span>
+      <span class="x" onclick="closeModal('devModal')">✕</span></div>
+    <div class="mbody">
+      <div class="kv" id="dm-meta"></div>
+      <div class="tabs" id="dm-tabs"></div>
+      <div id="dm-panes"></div>
+    </div>
+    <div class="mfoot">
+      <span class="muted" id="dm-foot"></span>
+      <button class="btn" onclick="reanalyze()">↻ Re-run analysis</button>
+      <button class="btn primary" id="dm-savecfg" onclick="saveConfig()" style="display:none">💾 Save config</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== AI PROMPT MODAL ===================== -->
+<div class="overlay" id="promptModal">
+  <div class="modal">
+    <div class="mhead">🤖 AI agent system prompt
+      <span class="x" onclick="closeModal('promptModal')">✕</span></div>
+    <div class="mbody">
+      <div class="muted" style="font-size:11px;margin-bottom:6px">
+        This steers how the ReAct agent reasons and which tools it prefers.
+        Edit and Save; changes apply to the next chat message.
+      </div>
+      <textarea class="code" id="prompt-text" spellcheck="false"></textarea>
+    </div>
+    <div class="mfoot">
+      <span class="muted" id="prompt-foot"></span>
+      <button class="btn" onclick="resetPrompt()">Reset to default</button>
+      <button class="btn primary" onclick="savePrompt()">💾 Save prompt</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TEMPLATE MODAL ===================== -->
+<div class="overlay" id="tplModal">
+  <div class="modal">
+    <div class="mhead">✎ PDF report template (Jinja2 + HTML/CSS)
+      <span class="x" onclick="closeModal('tplModal')">✕</span></div>
+    <div class="mbody">
+      <div class="muted" style="font-size:11px;margin-bottom:6px">
+        Variables: <code>report</code> (overall, counts, generated, source, engine),
+        <code>devices[]</code>, <code>asserts[]</code>, <code>findings[]</code>,
+        <code>ping</code>, <code>topo_imgs</code>. Edit freely and Save, then generate a PDF.
+      </div>
+      <textarea class="code" id="tpl-text" spellcheck="false"></textarea>
+    </div>
+    <div class="mfoot">
+      <span class="muted" id="tpl-foot"></span>
+      <button class="btn" onclick="resetTemplate()">Reset to default</button>
+      <button class="btn primary" onclick="saveTemplate()">💾 Save template</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const CHIPS = ["run analysis","check misconfigurations but don't make a pdf",
+               "what if I change the OSPF area on payment-edge-r3 link to area 0?",
+               "list devices",
+               "show ospf topology","show bgp topology","generate a PDF","help"];
+CHIPS.forEach(c=>{const s=document.createElement('span');s.className='chip';
+  s.textContent=c;s.onclick=()=>{$('msg').value=c;send();};$('chips').appendChild(s);});
+
+function toggle(id){const g=$(id);g.classList.toggle('collapsed');
+  const a=g.querySelector('.arrow');a.textContent=g.classList.contains('collapsed')?'▶':'▼';}
+function pane(id){document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));$(id).classList.add('active');}
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function md(s){return esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+  .replace(/`([^`]+)`/g,'<code>$1</code>').replace(/^- (.*)$/gm,'• $1').replace(/\n/g,'<br>');}
+
+function addTurn(text, who, atts){
+  const t=document.createElement('div');t.className='turn '+who;
+  const inner=document.createElement('div');inner.className='bubble';inner.innerHTML=md(text);
+  t.innerHTML='<div class="who">'+(who==='user'?'You':'CamNet')+'</div>';
+  t.appendChild(inner);
+  if(atts&&atts.length) atts.forEach(a=>inner.appendChild(renderAtt(a)));
+  $('chat').appendChild(t);$('chat').scrollTop=$('chat').scrollHeight;return inner;
+}
+function renderAtt(a){
+  if(a.type==='link'){const el=document.createElement('a');el.className='att-link';
+    el.href=a.href;el.target='_blank';el.textContent='🔗 '+a.label;
+    const w=document.createElement('div');w.appendChild(el);return w;}
+  if(a.type==='assertion'){
+    const d=document.createElement('div');d.className='assert'+(a.passed?' pass':'');
+    let h='<h4>'+esc(a.assert_name)+'</h4>';
+    if(a.message) h+='<div class="msg">'+esc(a.message)+'</div>';
+    if(a.description) h+='<div class="desc">'+esc(a.description)+'</div>';
+    if(a.records&&a.records.length){
+      h+='<div class="scrollx"><table><tr>';
+      a.columns.forEach(c=>h+='<th>'+esc(c)+'</th>');h+='</tr>';
+      a.records.forEach(r=>{h+='<tr>';a.columns.forEach(c=>h+='<td>'+esc(String(r[c]??''))+'</td>');h+='</tr>';});
+      h+='</table></div>';
+    }
+    d.innerHTML=h;return d;
+  }
+  return document.createTextNode('');
+}
+
+/* ---------------- Chat history ---------------- */
+let CURRENT_SID = null;
+const WELCOME = '<div class="turn bot"><div class="who">CamNet</div><div class="bubble">'+
+  "Welcome 👋 I'm your network assistant. Say <b>run analysis</b> to build the twin, "+
+  "ask <b>what if I change…</b> to simulate a config change, or just chat. What would you like to do?"+
+  '</div></div>';
+
+function newChat(){
+  CURRENT_SID=null; $('chat').innerHTML=WELCOME;
+  document.querySelectorAll('.chatitem').forEach(x=>x.classList.remove('active'));
+  $('msg').focus();
+}
+async function loadChat(sid){
+  CURRENT_SID=sid;
+  const s=await (await fetch('/api/chats/'+sid)).json();
+  $('chat').innerHTML='';
+  (s.messages||[]).forEach(m=>addTurn(m.text, m.role==='user'?'user':'bot'));
+  if(!s.messages||!s.messages.length) $('chat').innerHTML=WELCOME;
+  refreshChats();
+}
+async function delChat(sid, ev){
+  ev.stopPropagation();
+  if(!confirm('Delete this chat?')) return;
+  await fetch('/api/chats/'+sid,{method:'DELETE'});
+  if(CURRENT_SID===sid) newChat();
+  refreshChats();
+}
+async function refreshChats(){
+  try{
+    const r=await (await fetch('/api/chats')).json();
+    const cl=$('chatlist');
+    if(!r.sessions.length){cl.innerHTML='<div class="muted">No chats yet.</div>';return;}
+    cl.innerHTML='';
+    r.sessions.forEach(s=>{
+      const el=document.createElement('div');
+      el.className='chatitem'+(s.id===CURRENT_SID?' active':'');
+      el.innerHTML='<span class="t">'+esc(s.title)+'</span><button class="d" title="delete">✕</button>';
+      el.onclick=()=>loadChat(s.id);
+      el.querySelector('.d').onclick=(e)=>delChat(s.id,e);
+      cl.appendChild(el);
+    });
+  }catch(e){}
+}
+
+async function send(){
+  const text=$('msg').value.trim(); if(!text) return;
+  addTurn(text,'user'); $('msg').value='';
+  const tip=document.createElement('div');tip.className='typing';tip.textContent='CamNet is working…';
+  $('chat').appendChild(tip);$('chat').scrollTop=$('chat').scrollHeight;
+  try{
+    const r=await (await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({message:text, session_id:CURRENT_SID})})).json();
+    tip.remove(); addTurn(r.reply,'bot',r.attachments);
+    if(r.session_id) CURRENT_SID=r.session_id;
+    refreshChats(); refreshAll();
+  }catch(e){tip.remove();addTurn('Error: '+e,'bot');}
+}
+
+async function runAnalysis(){
+  const b=$('runBtn'); b.disabled=true; b.textContent='⏳ Analyzing…';
+  addTurn('run analysis','user');
+  try{
+    const res=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({give_topology:true,ip_ping_check_flag:true,
+        ip_map:{source:'192.168.10.10',destination:'192.168.30.10'}})});
+    const d=await res.json();
+    if(!res.ok) throw new Error(d.error||'failed');
+    const t=d.threats;
+    setBadge(t.overall);
+    addTurn(`✅ Analysis complete on **${d.analysis.devices.length} device(s)** (source: ${d.analysis.config_source}). `+
+      `Overall risk **${t.overall}** — High ${t.counts.High}, Medium ${t.counts.Medium}, Low ${t.counts.Low}.`,'bot',
+      [{type:'link',label:'Download PDF report',href:'/api/report'},
+       {type:'link',label:'Open layer3 topology',href:'/topology/layer3'},
+       {type:'link',label:'Open ospf topology',href:'/topology/ospf'},
+       {type:'link',label:'Open bgp topology',href:'/topology/bgp'}]);
+  }catch(e){addTurn('⚠️ Analysis failed: '+e.message+' (Batfish may still be starting — wait ~30s).','bot');}
+  finally{b.disabled=false;b.textContent='▶ Run analysis';refreshAll();}
+}
+
+async function doUpload(){
+  const f=$('zipFile').files[0]; if(!f){alert('Choose a .zip or config file');return;}
+  const fd=new FormData(); fd.append('file',f);
+  addTurn('Uploading '+f.name+'…','user');
+  try{
+    const r=await (await fetch('/api/upload',{method:'POST',body:fd})).json();
+    if(r.error) throw new Error(r.error);
+    addTurn(`📥 Ingested **${r.saved}** config file(s). Say **run analysis** to model them.`,'bot');
+  }catch(e){addTurn('Upload failed: '+e.message,'bot');}
+  refreshAll();
+}
+
+async function doSsh(){
+  const host=$('ssh-host').value.trim(); if(!host){alert('Enter a host');return;}
+  addTurn('SSH pull from '+host+'…','user');
+  try{
+    const r=await (await fetch('/api/ssh-pull',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({host,username:$('ssh-user').value,password:$('ssh-pass').value,
+        device_type:$('ssh-type').value})})).json();
+    if(r.error) throw new Error(r.error);
+    addTurn(`🔌 Pulled config from **${host}** → **${r.hostname}** (${r.bytes} bytes), added to inventory. Say **run analysis**.`,'bot');
+  }catch(e){addTurn('SSH pull failed: '+e.message,'bot');}
+  refreshAll();
+}
+
+async function resetSource(){await fetch('/api/reset-source',{method:'POST'});
+  addTurn('Switched back to the bundled sample configs.','bot');refreshAll();}
+
+function setBadge(o){const b=$('riskBadge');b.textContent='risk: '+o;b.className='badge '+o;}
+
+async function refreshHealth(){
+  try{const h=await (await fetch('/api/health')).json();
+    led('led-bf',h.batfish);$('s-bf').textContent=h.batfish?'ready':'starting';
+    led('led-gm',h.gemini);$('s-gm').textContent=h.gemini?'live':'mock';
+    $('s-src').textContent=h.active_source;$('s-dev').textContent=h.device_count;
+  }catch(e){led('led-bf',false);}
+}
+function led(id,on){$(id).className='led '+(on?'on':'off');}
+
+async function refreshInventory(){
+  try{const inv=await (await fetch('/api/inventory')).json();
+    const dl=$('devlist');
+    if(!inv.devices.length){dl.innerHTML='<div class="muted">No devices yet.</div>';return;}
+    dl.innerHTML='';
+    inv.devices.forEach(d=>{
+      const el=document.createElement('div');el.className='devitem';
+      el.innerHTML=
+        `<span class="acts">`+
+        `<button class="iconbtn" title="Edit config" data-a="cfg">✎</button>`+
+        `<button class="iconbtn del" title="Remove" data-a="del">✕</button></span>`+
+        `<b>${esc(d.hostname)}</b><span class="tag">${esc(d.role||'Network')}</span>`+
+        `<div class="ip">${esc(d.primary_ip||'—')} · src:${esc(d.source||'local')}</div>`;
+      el.querySelector('[data-a="cfg"]').onclick=(e)=>{e.stopPropagation();openDevice(d.hostname,'Config');};
+      el.querySelector('[data-a="del"]').onclick=(e)=>{e.stopPropagation();delDevice(d.hostname);};
+      el.onclick=()=>openDevice(d.hostname);
+      dl.appendChild(el);
+    });
+  }catch(e){}
+}
+
+/* ---------------- Device modal ---------------- */
+let CUR_DEV=null;
+function dtable(rows, cols){
+  if(!rows||!rows.length) return '<div class="muted">none</div>';
+  cols = cols || Object.keys(rows[0]);
+  let h='<div class="scrollbox"><table class="dtable"><tr>';
+  cols.forEach(c=>h+='<th>'+esc(c)+'</th>');h+='</tr>';
+  rows.forEach(r=>{h+='<tr>';cols.forEach(c=>h+='<td>'+esc(String(r[c]??''))+'</td>');h+='</tr>';});
+  return h+'</table></div>';
+}
+function pickCols(rows, want){
+  if(!rows||!rows.length) return null;
+  const have=Object.keys(rows[0]);
+  const sel=want.filter(c=>have.includes(c));
+  return sel.length?sel:have.slice(0,8);
+}
+async function openDevice(host, focus){
+  CUR_DEV=host;
+  $('dm-title').textContent=host;
+  $('dm-meta').innerHTML='<span class="muted">loading…</span>';
+  $('dm-tabs').innerHTML='';$('dm-panes').innerHTML='';
+  $('dm-savecfg').style.display='none';$('dm-foot').textContent='';
+  show('devModal');
+  const d=await (await fetch(`/api/device/${host}/details`)).json();
+  if(d.error){$('dm-meta').innerHTML='<span style="color:#922">'+esc(d.error)+'</span>';return;}
+  $('dm-meta').innerHTML=`<b>${esc(host)}</b> — ${esc(d.role||'Network')} `+
+    `<div class="chipline">`+(d.protocols||[]).map(p=>`<span class="chiptag">${esc(p)}</span>`).join('')+`</div>`+
+    (d.config_format?`<span class="muted">format: ${esc(d.config_format)}</span>`:'');
+  const ifCols=pickCols(d.interfaces,['Interface','Description','Primary_Address','Active','Bandwidth','MTU']);
+  const rtCols=pickCols(d.routes,['Network','Next_Hop_IP','Next_Hop','Protocol','Metric','Admin_Distance']);
+  const bgpCols=pickCols(d.bgp_peers,['Local_AS','Remote_AS','Local_IP','Remote_IP','Peer_Group','Description']);
+  const ospfCols=pickCols(d.ospf,['Interface','OSPF_Area_Name','OSPF_Cost','OSPF_Network_Type','OSPF_Passive']);
+  const tabs=[
+    ['Interfaces', dtable(d.interfaces, ifCols)],
+    ['Routing table', dtable(d.routes, rtCols)],
+    ['ACLs', (d.acls&&d.acls.length)? d.acls.map(a=>
+        `<b>${esc(a.name)}</b><div class="scrollbox"><pre style="margin:0;padding:6px;font-size:10.5px;white-space:pre-wrap">${esc(a.definition)}</pre></div>`).join('<br>')
+        : '<div class="muted">no named ACLs</div>'],
+    ['BGP peers', dtable(d.bgp_peers, bgpCols)],
+    ['OSPF', dtable(d.ospf, ospfCols)],
+    ['Config', '<div class="muted">loading…</div>'],
+  ];
+  const tb=$('dm-tabs'), pb=$('dm-panes');
+  tabs.forEach(([name,html],i)=>{
+    const t=document.createElement('div');t.className='tab'+(i===0?' active':'');t.textContent=name;
+    const p=document.createElement('div');p.className='tabpane'+(i===0?' active':'');p.id='pane-'+i;p.innerHTML=html;
+    t.onclick=()=>{document.querySelectorAll('#dm-tabs .tab').forEach(x=>x.classList.remove('active'));
+      document.querySelectorAll('#dm-panes .tabpane').forEach(x=>x.classList.remove('active'));
+      t.classList.add('active');p.classList.add('active');
+      $('dm-savecfg').style.display = (name==='Config')?'inline-block':'none';
+      if(name==='Config') loadConfig(host, p);};
+    tb.appendChild(t);pb.appendChild(p);
+  });
+  if(focus==='Config'){[...tb.children].find(x=>x.textContent==='Config')?.click();}
+}
+async function loadConfig(host, pane){
+  const r=await (await fetch(`/api/device/${host}/config`)).json();
+  if(r.error){pane.innerHTML='<div class="muted">'+esc(r.error)+'</div>';return;}
+  pane.innerHTML=`<textarea class="code" id="cfg-text" spellcheck="false">${esc(r.config)}</textarea>`;
+  $('dm-foot').textContent = r.editable ? 'Editing ingested copy ('+r.path+').'
+    : 'Sample config — saving creates an editable ingested copy.';
+}
+async function saveConfig(){
+  const ta=$('cfg-text'); if(!ta) return;
+  const r=await (await fetch(`/api/device/${CUR_DEV}/config`,{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({config:ta.value})})).json();
+  if(r.error){alert(r.error);return;}
+  $('dm-foot').textContent='Saved. Re-run analysis to apply changes.';
+  refreshAll();
+}
+async function delDevice(host){
+  if(!confirm('Remove '+host+' from inventory?')) return;
+  await fetch(`/api/inventory/${host}`,{method:'DELETE'});
+  addTurn('🗑 Removed **'+host+'** from inventory.','bot');refreshAll();
+}
+async function reanalyze(){ closeModal('devModal'); runAnalysis(); }
+
+/* ---------------- Template editor ---------------- */
+async function openTemplate(){
+  show('tplModal');$('tpl-foot').textContent='loading…';
+  const r=await (await fetch('/api/report-template')).json();
+  $('tpl-text').value=r.template||'';
+  $('tpl-foot').textContent=r.is_custom?'Currently using a CUSTOM template.':'Currently using the default template.';
+}
+async function saveTemplate(){
+  const r=await (await fetch('/api/report-template',{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({template:$('tpl-text').value})})).json();
+  if(r.error){$('tpl-foot').textContent='❌ '+r.error;return;}
+  $('tpl-foot').textContent='✅ Saved. Generate a PDF to see it.';
+}
+async function resetTemplate(){
+  await fetch('/api/report-template/reset',{method:'POST'});
+  openTemplate();
+}
+
+/* ---------------- AI agent prompt editor ---------------- */
+async function openPrompt(){
+  show('promptModal');$('prompt-foot').textContent='loading…';
+  const r=await (await fetch('/api/agent-prompt')).json();
+  $('prompt-text').value=r.prompt||'';
+  $('prompt-foot').textContent=r.is_custom?'Currently using a CUSTOM prompt.':'Currently using the default prompt.';
+}
+async function savePrompt(){
+  const r=await (await fetch('/api/agent-prompt',{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:$('prompt-text').value})})).json();
+  if(r.error){$('prompt-foot').textContent='❌ '+r.error;return;}
+  $('prompt-foot').textContent='✅ Saved. Applies to your next message.';
+}
+async function resetPrompt(){
+  await fetch('/api/agent-prompt/reset',{method:'POST'});
+  openPrompt();
+}
+
+function show(id){$(id).classList.add('show');}
+function closeModal(id){$(id).classList.remove('show');}
+document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('show');}));
+
+async function refreshLogs(){
+  try{const l=await (await fetch('/api/logs')).json();
+    // reports
+    const reps=l.events.filter(e=>e.kind==='report');
+    const rl=$('replist');
+    if(!reps.length){rl.innerHTML='<div class="muted">No reports yet.</div>';}
+    else{rl.innerHTML='';reps.slice(0,8).forEach(e=>{
+      const m=e.text.match(/camnet_report_[\w-]+\.pdf/);
+      const a=document.createElement('a');a.className='lnk';a.target='_blank';
+      a.textContent='📄 '+(m?m[0]:'report');a.href=m?('/uploads/'+m[0]):'/api/report';
+      rl.appendChild(a);});}
+    // activity
+    const ll=$('loglist');
+    if(!l.events.length){ll.innerHTML='<div class="muted">—</div>';}
+    else{ll.innerHTML='';l.events.slice(0,20).forEach(e=>{
+      const d=document.createElement('div');d.className='logitem';
+      d.innerHTML='<span class="k">['+esc(e.kind)+']</span> '+esc(e.text);ll.appendChild(d);});}
+  }catch(e){}
+}
+
+function refreshAll(){refreshHealth();refreshInventory();refreshLogs();}
+refreshAll();refreshChats();setInterval(refreshHealth,8000);
+</script>
+</body>
+</html>

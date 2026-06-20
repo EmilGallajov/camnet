@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CamNet — {{ layer }} topology</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  body { margin:0; font-family: Tahoma, Verdana, Arial, sans-serif; background:#ece9d8; }
+  .titlebar { background: linear-gradient(#3a6ea5,#1c4d8a); color:#fff; padding:7px 12px;
+              font-weight:bold; font-size:14px; border-bottom:2px solid #0c3a6e;
+              display:flex; align-items:center; gap:10px; }
+  .titlebar a { color:#cfe3ff; font-size:11px; font-weight:normal; }
+  .titlebar .links { margin-left:auto; display:flex; gap:12px; }
+  .legend { background:#f5f4ea; border-bottom:1px solid #b9b6a6; padding:6px 12px; font-size:11px; color:#444; }
+  .legend span { display:inline-block; margin-right:14px; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; vertical-align:-1px; }
+  .line { display:inline-block; width:22px; height:0; border-top:3px solid #2e9e7a; margin-right:4px; vertical-align:3px; }
+  .line.bad { border-top:3px dashed #c0392b; }
+  .wrap { display:flex; height: calc(100vh - 80px); }
+  #net { flex:1; background:#fbfbf6; }
+  #panel { width:300px; background:#f4f3ea; border-left:1px solid #b9b6a6; padding:10px; overflow-y:auto; font-size:12px; }
+  #panel h3 { margin:0 0 6px; color:#1c4d8a; font-size:13px; }
+  #panel table { width:100%; border-collapse:collapse; }
+  #panel td { padding:3px 5px; border-bottom:1px solid #e2dfce; vertical-align:top; }
+  #panel td.k { color:#666; width:38%; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:9px; font-size:11px; font-weight:bold; }
+  .pill.up { background:#dff3e8; color:#1e6b34; border:1px solid #9ed4b4; }
+  .pill.bad { background:#fbe2e0; color:#922; border:1px solid #e0a59f; }
+  .muted { color:#999; }
+</style>
+</head>
+<body>
+  <div class="titlebar">
+    🌐 CamNet Topology — {{ layer|upper }} layer
+    <div class="links">
+      <a href="/topology/layer3">L3</a><a href="/topology/ospf">OSPF</a>
+      <a href="/topology/bgp">BGP</a><a href="/">‹ console</a>
+    </div>
+  </div>
+  <div class="legend">
+    <span><i class="dot" style="background:#c0392b"></i>Traffic</span>
+    <span><i class="dot" style="background:#27ae60"></i>Surveillance</span>
+    <span><i class="dot" style="background:#2980b9"></i>Payments</span>
+    <span><i class="line"></i>up / established</span>
+    <span><i class="line bad"></i>faulty / down</span>
+    &nbsp; click a link or node for details · drag · scroll to zoom
+  </div>
+  <div class="wrap">
+    <div id="net"></div>
+    <div id="panel"><h3>Details</h3><div class="muted">Click a connection or device to inspect it.</div></div>
+  </div>
+<script>
+const LAYER = "{{ layer }}";
+const COLORS = {"Traffic control":"#c0392b","Surveillance":"#27ae60",
+                "Digital payments":"#2980b9","Network":"#7f8c8d"};
+let EDGEMAP = {};
+
+function panel(html){ document.getElementById('panel').innerHTML = '<h3>Details</h3>'+html; }
+function table(obj){
+  let h='<table>';
+  for(const k in obj){ h+='<tr><td class="k">'+esc(k)+'</td><td>'+esc(String(obj[k]))+'</td></tr>'; }
+  return h+'</table>';
+}
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+fetch(`/api/topology-data/${LAYER}`).then(r=>r.json()).then(data=>{
+  if(!data.nodes || data.nodes.length===0){
+    document.getElementById('net').innerHTML =
+      '<div style="padding:40px;text-align:center;color:#888">No topology yet. Go back and run an analysis first.</div>';
+    return;
+  }
+  const nodes = new vis.DataSet(data.nodes.map(n=>({
+    id:n.id, label:n.label, shape:"box", margin:10, group:n.group,
+    color:{background:COLORS[n.group]||"#7f8c8d", border:"#333",
+           highlight:{background:COLORS[n.group]||"#999", border:"#000"}},
+    font:{color:"#fff", face:"Tahoma", size:14}
+  })));
+  const edges = new vis.DataSet(data.edges.map((e,i)=>{
+    EDGEMAP[i]=e;
+    return { id:i, from:e.from, to:e.to, title:e.title||'',
+      color:{color: e.up ? "#2e9e7a" : "#c0392b",
+             highlight: e.up ? "#1e6b34" : "#922"},
+      width: e.up ? 2.5 : 3.5, dashes: !e.up,
+      label: e.up ? '' : (e.status||'FAULT'),
+      font:{color:"#c0392b", size:10, strokeWidth:3, strokeColor:"#fff"} };
+  }));
+  const net = new vis.Network(document.getElementById('net'), {nodes, edges}, {
+    physics:{ stabilization:true, barnesHut:{springLength:170} },
+    interaction:{ hover:true }
+  });
+  net.on('click', params=>{
+    if(params.edges.length){
+      const e = EDGEMAP[params.edges[0]];
+      const st = e.up ? '<span class="pill up">'+(e.status||'UP')+'</span>'
+                      : '<span class="pill bad">'+(e.status||'FAULT')+'</span>';
+      panel('<p><b>'+esc(e.from)+'</b> ↔ <b>'+esc(e.to)+'</b> &nbsp;'+st+'</p>'+
+            table(e.detail||{}));
+    } else if(params.nodes.length){
+      const id = params.nodes[0];
+      fetch(`/api/device/${id}/details`).then(r=>r.json()).then(d=>{
+        let h='<p><b>'+esc(id)+'</b> — '+esc(d.role||'Network')+'</p>';
+        h+='<p class="muted">Protocols: '+esc((d.protocols||[]).join(', ')||'—')+'</p>';
+        h+='<b>Interfaces ('+(d.interfaces||[]).length+')</b>'+table(
+          Object.fromEntries((d.interfaces||[]).slice(0,8).map(i=>
+            [i.Interface||i.interface||'if', (i.Primary_Address||i.address||'')])));
+        h+='<p class="muted">'+(d.routes||[]).length+' routes · '+
+           (d.acls||[]).length+' ACLs · '+(d.bgp_peers||[]).length+' BGP peers. '+
+           'Open the device in the console for full data.</p>';
+        panel(h);
+      });
+    }
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,81 @@
+{# ============================================================== #}
+{#  CamNet PDF report template — EDIT THIS FILE to restyle the    #}
+{#  report. Plain Jinja2 + HTML + CSS, rendered by WeasyPrint.    #}
+{#  Available context: report (overall, counts, generated,        #}
+{#  source, engine), devices[], asserts[], findings[], ping,      #}
+{#  topo_imgs{layer3,ospf,bgp}.                                   #}
+{# ============================================================== #}
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 1.6cm; @bottom-center { content: "CamNet — Smart-City Network Report  ·  page " counter(page) " / " counter(pages); font-size: 8px; color: #888; } }
+  body { font-family: "DejaVu Sans", Arial, sans-serif; color: #222; font-size: 11px; }
+  h1 { color: #1a5276; font-size: 22px; margin: 0; }
+  h2 { color: #1a5276; font-size: 14px; border-bottom: 2px solid #d4e1ee; padding-bottom: 3px; margin-top: 22px; }
+  .sub { color: #777; font-size: 10px; margin: 2px 0 0; }
+  .banner { color: #fff; padding: 10px 14px; border-radius: 6px; margin: 14px 0; font-size: 13px; }
+  .High { background: #c0392b; } .Medium { background: #d68910; } .Low { background: #2980b9; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  th { background: #1a5276; color: #fff; text-align: left; padding: 5px 7px; font-size: 10px; }
+  td { padding: 4px 7px; border-bottom: 1px solid #e4ebf2; font-size: 10px; }
+  tr:nth-child(even) td { background: #f5f8fb; }
+  .pass { color: #1e8449; font-weight: bold; } .fail { color: #c0392b; font-weight: bold; }
+  .finding { border-left: 4px solid #ccc; padding: 6px 10px; margin: 7px 0; background: #f9fbfd; }
+  .finding.High { border-color: #c0392b; } .finding.Medium { border-color: #d68910; } .finding.Low { border-color: #2980b9; }
+  .sev { font-weight: bold; }
+  .rec { color: #1a5276; }
+  img.topo { width: 11cm; border: 1px solid #d4e1ee; border-radius: 4px; margin: 4px 0; }
+</style>
+</head>
+<body>
+  <h1>CamNet Network Security Report</h1>
+  <p class="sub">AI-powered network digital twin · {{ report.generated }} · source: {{ report.source }} · engine: {{ report.engine }}</p>
+
+  <div class="banner {{ report.overall }}">
+    <b>OVERALL RISK: {{ report.overall|upper }}</b>
+    &nbsp;&nbsp; High {{ report.counts.High }} · Medium {{ report.counts.Medium }} · Low {{ report.counts.Low }}
+    &nbsp;&nbsp; {{ devices|length }} device(s)
+  </div>
+
+  <h2>Devices</h2>
+  <table>
+    <tr><th>Hostname</th><th>Role</th><th>Primary IP</th><th>Source</th></tr>
+    {% for d in devices %}
+    <tr><td>{{ d.hostname }}</td><td>{{ d.role }}</td><td>{{ d.primary_ip or "—" }}</td><td>{{ d.source or "local" }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Batfish assertions</h2>
+  <table>
+    <tr><th>Check</th><th>Count</th><th>Status</th></tr>
+    {% for a in asserts %}
+    <tr><td>{{ a.name }}</td><td>{{ a.count }}</td>
+      <td class="{{ 'pass' if a.status == 'PASS' else ('fail' if a.status == 'FAIL' else '') }}">{{ a.status }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Threat findings</h2>
+  {% for f in findings %}
+  <div class="finding {{ f.severity }}">
+    <span class="sev">[{{ f.severity }}] {{ f.title }}</span> <small>({{ f.category }})</small><br>
+    {{ f.detail }}<br>
+    <span class="rec">Recommendation: {{ f.recommendation }}</span>
+  </div>
+  {% endfor %}
+
+  {% if ping and ping.source %}
+  <h2>Reachability verdict</h2>
+  <p>Flow <b>{{ ping.source }} &rarr; {{ ping.destination }}</b>:
+     <b class="{{ 'pass' if ping.pingable else 'fail' }}">{{ "REACHABLE" if ping.pingable else "NOT REACHABLE" }}</b></p>
+  {% endif %}
+
+  {% if topo_imgs %}
+  <h2>Topology maps</h2>
+  {% for layer, src in topo_imgs.items() %}
+  <p style="margin:8px 0 0"><b>{{ layer|upper }}</b><br><img class="topo" src="{{ src }}"></p>
+  {% endfor %}
+  {% endif %}
+</body>
+</html>
