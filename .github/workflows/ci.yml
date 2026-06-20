@@ -8,14 +8,15 @@ jobs:
   unit:
     runs-on: ubuntu-latest
     env:
-      # Point all writable paths at the runner temp dir so module import
-      # (which mkdir's these) works without root, and use a clean config dir.
-      UPLOAD_DIR: ${{ runner.temp }}/uploads
-      DATA_DIR: ${{ runner.temp }}/data
-      TOPO_DIR: ${{ runner.temp }}/topologies
+      # Point all writable paths under the workspace so module import (which
+      # mkdir's these) works without root. (Only the `github` context is allowed
+      # in job-level env.)
+      UPLOAD_DIR: ${{ github.workspace }}/_run/uploads
+      DATA_DIR: ${{ github.workspace }}/_run/data
+      TOPO_DIR: ${{ github.workspace }}/_run/topologies
       LOCAL_CONFIG_DIR: ${{ github.workspace }}/configs
       MPLBACKEND: Agg
-      MPLCONFIGDIR: ${{ runner.temp }}/mpl
+      MPLCONFIGDIR: ${{ github.workspace }}/_run/mpl
     steps:
       - uses: actions/checkout@v4
 
