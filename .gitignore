@@ -6,3 +6,6 @@ src/app/topologies/
 .DS_Store
 .vscode/
 *.zip
+# ...but keep the bundled sample config archives
+!sample-config-files/
+!sample-config-files/**
