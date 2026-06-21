@@ -1,4 +1,5 @@
-# CamNet — AI Network Intelligence for Smart Cities
+# CamNet - AI Network Intelligence for Smart Cities
+<img width="1918" height="925" alt="image" src="https://github.com/user-attachments/assets/b98f7a0c-a579-4c34-ac60-de71a8e6bb93" />
 
 CamNet builds a **vendor-neutral digital twin** of a city network from device
 configs (Batfish), runs a security/health assertion suite, classifies every
