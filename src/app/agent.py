@@ -68,9 +68,13 @@ def _planner_prompt(message, context):
     devices = context.get("devices", [])
     failed = context.get("failed", [])
     cfgs = context.get("configs", {})
+    history = context.get("history", "")
     cfg_block = ""
     for host, text in cfgs.items():
         cfg_block += f"\n--- config of {host} ---\n{text[:2200]}\n"
+    hist_block = ("\n\nCONVERSATION SO FAR (oldest first; use it to resolve "
+                  "references like 'yes', 'do it', 'that one', 'the second one'):\n"
+                  + history) if history else ""
     return (
         get_prompt()
         + "\n\nDecide how to respond to the user's request:\n"
@@ -97,9 +101,13 @@ def _planner_prompt(message, context):
           "\"final\".\n"
           "- For every \"final\" answer: be casual and conversational, keep it "
           "brief, and end with a short follow-up question or suggestion.\n"
+          "- IMPORTANT: a short reply like 'yes', 'sure', 'do it', 'go ahead' is "
+          "the user ACCEPTING your last suggestion in the conversation below — "
+          "carry out that suggested action (call the right tool), don't restart.\n"
           "- 'show/open ... topology' → tool show_topology (layer3|ospf|bgp).\n"
           "- explicit 'make/generate/download a PDF/report' → tool generate_pdf.\n"
           "- 'run/refresh analysis' → tool run_analysis.\n"
+        + hist_block
         + "\n\nCONTEXT:\nDevices: " + (", ".join(devices) or "none (run analysis first)")
         + "\nAnalysis available: " + str(bool(context.get("has_analysis")))
         + "\nOverall risk: " + str(context.get("overall") or "unknown")
