@@ -64,11 +64,6 @@ def reset_prompt():
         os.remove(PROMPT_PATH)
 
 
-# Tools whose observation text is worth showing the user directly.
-_SHOW_OBS = {"run_analysis", "list_devices", "get_assertions",
-             "simulate_config_change", "generate_pdf", "show_topology"}
-
-
 def _planner_prompt(message, context):
     devices = context.get("devices", [])
     failed = context.get("failed", [])
@@ -116,19 +111,6 @@ def _planner_prompt(message, context):
     )
 
 
-def _responder_prompt(message, tool, observation, history):
-    return (
-        get_prompt()
-        + "\n\nThe user asked: " + message
-        + "\n\nYou used the tool '" + tool + "'. Its result (ground truth — do "
-          "not contradict it):\n" + observation
-        + ("\n\nRecent conversation:\n" + history if history else "")
-        + "\n\nReply to the user as a casual, helpful chat assistant: a brief "
-          "natural-language answer grounded in that result, then a short "
-          "follow-up question or suggestion. Plain markdown, no JSON."
-    )
-
-
 def run(message, tools, context):
     raw = llm._gemini(_planner_prompt(message, context), temperature=0.2, fast=True)
     obj = llm._extract_json(raw)
@@ -152,14 +134,7 @@ def run(message, tools, context):
 
     obs = res.get("observation", "") if isinstance(res, dict) else str(res)
     atts = res.get("attachments", []) if isinstance(res, dict) else []
-
-    # Casual responder: turn the raw tool result into a natural reply with a
-    # follow-up. Falls back to say+observation if the LLM call fails.
-    try:
-        reply = llm._gemini(
-            _responder_prompt(message, tool, obs, context.get("history", "")),
-            temperature=0.5, fast=True).strip()
-    except Exception:  # noqa: BLE001
-        parts = [p for p in (say, obs if tool in _SHOW_OBS else "") if p]
-        reply = "\n\n".join(parts) or "Done."
-    return {"reply": reply, "attachments": atts}
+    # Tool observations are written to be conversational already, so we return
+    # them directly — reliable and fast (no flaky 2nd LLM call that the free-tier
+    # rate limit would often drop, leaving a robotic fallback).
+    return {"reply": obs or "Done.", "attachments": atts}

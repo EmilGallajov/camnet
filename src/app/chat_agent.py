@@ -137,6 +137,10 @@ def parse_intent(message, known_devices):
         return {"action": "howto_ssh"}
     if has("help", "what can you", "commands"):
         return {"action": "help"}
+    # "what if ..." / simulate needs the AI engine; surface a clear hint when
+    # we're in the (LLM-unavailable) fallback path rather than guessing.
+    if "what if" in m or has("simulate", "what would happen", "what happens if"):
+        return {"action": "simulate_hint"}
     if has("run analysis", "analyze", "analyse", "scan", "re-run", "rerun",
            "re analyze", "build twin", "build the twin"):
         return {"action": "analyze"}

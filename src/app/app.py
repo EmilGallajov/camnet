@@ -615,108 +615,137 @@ def _failed_set(asserts):
     return out
 
 
+def _adesc(k):
+    """Human phrase for an internal assertion key."""
+    m = chat_agent.ASSERT_META.get(k, {})
+    return m.get("desc") or m.get("name") or k
+
+
 def _agent_tools():
     def run_analysis():
         with _lock:
             a, t = _run_analysis()
-        return {"observation": f"Analysis complete on {len(a['devices'])} devices "
-                f"({a['config_source']}). Overall {t['overall']}; counts "
-                f"{t['counts']}. Devices: {', '.join(a['devices'])}.",
+        c = t["counts"]
+        return {"observation":
+                f"Done! I analysed **{len(a['devices'])} devices** "
+                f"({a['config_source']} configs) and built the digital twin. "
+                f"Overall risk is **{t['overall']}** — {c['High']} high, "
+                f"{c['Medium']} medium, {c['Low']} low. Want me to break down the "
+                "issues, show a topology, or generate a PDF report?",
                 "attachments": [
                     {"type": "link", "label": "Download PDF report", "href": "/api/report"},
                     {"type": "link", "label": "Open OSPF topology", "href": "/topology/ospf"}]}
 
     def list_devices():
         devs = inventory.list_devices()
-        lines = [f"{d['hostname']} ({d.get('role','Network')}, IP "
-                 f"{d.get('primary_ip','—')}, src {d.get('source','local')})"
-                 for d in devs]
-        return {"observation": f"{len(devs)} devices: " + "; ".join(lines)}
+        lines = [f"- `{d['hostname']}` — {d.get('role','Network')} "
+                 f"(IP {d.get('primary_ip','—')})" for d in devs]
+        return {"observation": f"There are **{len(devs)} devices** in the "
+                "inventory:\n" + "\n".join(lines)
+                + "\n\nWant details on any one of them, or a topology view?"}
 
     def get_device(host=None, **_):
         if not host:
-            return {"observation": "missing 'host'"}
+            return {"observation": "Which device would you like to look at?"}
         try:
             d = engine.device_details(host)
         except Exception as e:  # noqa: BLE001
-            return {"observation": f"error: {e}"}
-        return {"observation": json.dumps(_json_safe({
-            "hostname": d["hostname"], "role": d["role"],
-            "protocols": d.get("protocols"),
-            "interfaces": d.get("interfaces", [])[:12],
-            "routes": d.get("routes", [])[:20],
-            "bgp_peers": d.get("bgp_peers", []),
-            "ospf": d.get("ospf", []),
-            "acls": [a["name"] for a in d.get("acls", [])],
-        }))[:1700]}
+            return {"observation": f"I couldn't load that device: {llm._scrub(str(e))}"}
+        acls = [a["name"] for a in d.get("acls", [])]
+        return {"observation":
+                f"**{d['hostname']}** ({d.get('role','Network')}) is running "
+                f"{', '.join(d.get('protocols', [])) or 'no dynamic protocols'}. "
+                f"It has {len(d.get('interfaces', []))} interfaces, "
+                f"{len(d.get('routes', []))} routes, "
+                f"{len(d.get('bgp_peers', []))} BGP peer(s) and "
+                f"{len(acls)} ACL(s)"
+                + (f" ({', '.join(acls)})" if acls else "")
+                + ". Click the device in the left panel for the full tables. "
+                "Anything specific you want to check?"}
 
     def get_config(host=None, **_):
         if not host:
-            return {"observation": "missing 'host'"}
+            return {"observation": "Which device's config do you want to see?"}
         path, _ed = _find_config(host)
         if not path:
-            return {"observation": f"no config found for {host}"}
+            return {"observation": f"I couldn't find a config for `{host}`."}
         with open(path, errors="ignore") as f:
-            return {"observation": f.read()[:3500]}
+            text = f.read()[:3500]
+        return {"observation": f"Here's `{host}`'s configuration:\n\n```\n{text}\n```"}
 
     def get_assertions(devices=None, **_):
         a = STATE["analysis"]
         if not a:
-            return {"observation": "No analysis yet — call run_analysis first."}
+            return {"observation": "I haven't built the twin yet — say *run "
+                    "analysis* and I'll check for misconfigurations."}
         if isinstance(devices, str):
             devices = [devices]
         blocks = chat_agent.assertion_blocks(a, devices=devices or None)
+        scope = f" for {', '.join(devices)}" if devices else ""
         if not blocks:
-            return {"observation": "No failing assertions"
-                    + (f" for {devices}" if devices else "") + "."}
-        summary = "; ".join(f"{b['assert_name']} ({len(b['records'])} record(s))"
-                            for b in blocks)
-        return {"observation": f"{len(blocks)} failing assertion(s): {summary}. "
-                "Detailed tables shown to the user.", "attachments": blocks}
+            return {"observation": f"Good news — no failing checks{scope}; the "
+                    "network model looks clean. Want to simulate a change or see "
+                    "a topology?"}
+        names = ", ".join(f"`{b['assert_name']}`" for b in blocks)
+        return {"observation": f"I found **{len(blocks)} failing check(s)**{scope}: "
+                f"{names}. The details are in the cards below. Want me to explain "
+                "one of them, or simulate a fix?", "attachments": blocks}
 
     def simulate_config_change(host=None, old_text=None, new_text=None, **_):
         a = STATE["analysis"]
         if not a:
-            return {"observation": "Run an analysis first to have a baseline."}
+            return {"observation": "I need a baseline first — say *run analysis*, "
+                    "then I can simulate changes against it."}
         if not host or new_text is None:
-            return {"observation": "need host and new_text (and old_text to replace)"}
+            return {"observation": "Tell me the device and the change, e.g. *what "
+                    "if I set payment-edge-r3's OSPF area to 0?*"}
         with _lock:
             res = engine.simulate_change(_config_dir(), host, old_text or "", new_text)
         if res.get("error"):
-            return {"observation": res["error"]}
-        base_fail = _failed_set(a.get("default_asserts", {}))
-        cand_fail = _failed_set(res.get("candidate_asserts", {}))
-        new_issues = {k: cand_fail[k] for k in cand_fail
-                      if k not in base_fail or cand_fail[k] > base_fail.get(k, 0)}
-        resolved = [k for k in base_fail if k not in cand_fail]
-        meta = chat_agent.ASSERT_META
-        def nm(k):
-            return meta.get(k, {}).get("name", k)
-        if new_issues:
-            desc = "; ".join(f"{nm(k)} (+{cand_fail[k] - base_fail.get(k,0)} now {cand_fail[k]})"
-                             for k in new_issues)
-            obs = (f"Simulated change in {res['file']} ({host}): "
-                   f"INTRODUCES new issues -> {desc}.")
-        else:
-            obs = (f"Simulated change in {res['file']} ({host}): no NEW assertion "
-                   "failures introduced.")
+            return {"observation": f"I couldn't run that simulation: {res['error']}"}
+        base = _failed_set(a.get("default_asserts", {}))
+        cand = _failed_set(res.get("candidate_asserts", {}))
+        new_issues = [k for k in cand if k not in base or cand[k] > base.get(k, 0)]
+        resolved = [k for k in base if k not in cand]
+        parts = [f"I tested that change to **{host}** on a throwaway copy of the "
+                 "network (nothing was touched on the real device). Here's the impact:"]
+        def _afail(k):
+            m = chat_agent.ASSERT_META.get(k, {})
+            return m.get("fail") or m.get("name") or k
         if resolved:
-            obs += " Resolves: " + ", ".join(nm(k) for k in resolved) + "."
-        obs += " (Simulation only — nothing was persisted.)"
-        return {"observation": obs}
+            parts.append("✅ **Fixes:** " + "; ".join(_adesc(k) for k in resolved))
+        if new_issues:
+            parts.append("⚠️ **Would cause:** "
+                         + "; ".join(_afail(k) for k in new_issues))
+        if not resolved and not new_issues:
+            parts.append("👍 It's safe — no new problems, and it doesn't change any "
+                         "existing findings.")
+        if resolved and not new_issues:
+            parts.append("Looks like a clean fix. Want me to open the updated OSPF "
+                         "topology, or try another change?")
+        elif new_issues:
+            parts.append("I'd hold off on this one — want me to suggest a safer "
+                         "alternative?")
+        else:
+            parts.append("Want to try a different what-if?")
+        return {"observation": "\n\n".join(parts)}
 
     def generate_pdf(**_):
         out = _make_pdf()
         if not out:
-            return {"observation": "Run an analysis first."}
-        return {"observation": "PDF generated.",
+            return {"observation": "Let's run an analysis first, then I can build "
+                    "the report."}
+        return {"observation": "📄 Your PDF report is ready — grab it below. Want me "
+                "to tweak the template or check anything else?",
                 "attachments": [{"type": "link", "label": os.path.basename(out),
                                  "href": "/uploads/" + os.path.basename(out)}]}
 
     def show_topology(layer="layer3", **_):
         if layer not in ("layer3", "ospf", "bgp"):
             layer = "layer3"
-        return {"observation": f"Provided link to interactive {layer} topology.",
+        return {"observation": f"Here's the interactive **{layer}** topology — "
+                "faulty links show up in red, and you can click a link for session "
+                "details. Open it below. Want a different layer (layer3 / ospf / bgp)?",
                 "attachments": [{"type": "link",
                                  "label": f"Open {layer} topology",
                                  "href": f"/topology/{layer}"}]}
@@ -739,6 +768,12 @@ def _keyword_dispatch(message):
 
     if act == "help":
         return {"reply": _HELP, "attachments": []}
+
+    if act == "simulate_hint":
+        return {"reply": "To simulate a config change I use the AI engine, which "
+                "is briefly rate-limited right now. Give it ~30 seconds and ask "
+                "again — e.g. *what if I set payment-edge-r3's OSPF area to 0?*",
+                "attachments": []}
 
     if act == "howto_upload":
         return {"reply": "Use **➕ Add configs → Upload .zip** in the left panel "
