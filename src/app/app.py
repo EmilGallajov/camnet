@@ -29,9 +29,12 @@ LOCAL_CONFIG_DIR = os.environ.get("LOCAL_CONFIG_DIR", "/app/configs")
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
 INGEST_CONFIGS = os.path.join(UPLOAD_DIR, "configs")
 TOPO_DIR = os.environ.get("TOPO_DIR", "/app/topologies")
+DATA_DIR = os.environ.get("DATA_DIR", "/app/data")
+STATE_PATH = os.path.join(DATA_DIR, "state.json")
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(INGEST_CONFIGS, exist_ok=True)
+os.makedirs(DATA_DIR, exist_ok=True)
 
 app = Flask(__name__, template_folder="templates")
 # Cap every request body (uploads, config PUTs, chat) — defends against
@@ -60,8 +63,33 @@ def _safe_host(host):
 
 def _ext_ok(name):
     return os.path.splitext(name)[1].lower() in ALLOWED_UPLOAD_EXT
+
+
 CHAT_LOG = []
 _lock = threading.Lock()
+
+
+def _save_state():
+    """Persist analysis/threats/source so a container restart doesn't lose it."""
+    try:
+        import json as _json
+        with open(STATE_PATH, "w", encoding="utf-8") as f:
+            _json.dump(_json_safe({k: STATE[k] for k in
+                                   ("analysis", "threats", "active_source")}), f)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _load_state():
+    try:
+        import json as _json
+        with open(STATE_PATH, encoding="utf-8") as f:
+            data = _json.load(f)
+        if isinstance(data, dict):
+            STATE.update({k: data.get(k, STATE.get(k))
+                          for k in ("analysis", "threats", "active_source")})
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _json_safe(obj):
@@ -72,6 +100,9 @@ def _json_safe(obj):
     if isinstance(obj, float) and not math.isfinite(obj):
         return None
     return obj
+
+
+_load_state()  # restore last analysis/threats so a restart keeps the session
 
 
 # --------------------------------------------------------------------------
@@ -123,6 +154,7 @@ def _run_analysis(give_topology=True, ping_flag=False, ip_map=None):
     iface = engine.interface_addresses()
     inventory.sync_from_analysis(analysis, iface, source)
     STATE["analysis"], STATE["threats"] = analysis, threats
+    _save_state()
     return analysis, threats
 
 
@@ -150,6 +182,7 @@ def health():
         "batfish": engine.ready(),
         "gemini": llm.gemini_enabled(),
         "has_analysis": STATE["analysis"] is not None,
+        "overall": (STATE["threats"] or {}).get("overall"),
         "active_source": STATE["active_source"],
         "ingested_files": len(os.listdir(INGEST_CONFIGS)) if os.path.isdir(INGEST_CONFIGS) else 0,
         "device_count": len(inventory.list_devices()),
@@ -247,6 +280,7 @@ def upload():
     if saved == 0:
         return jsonify({"error": "No usable config files found in upload"}), 400
     STATE["active_source"] = "ingested"
+    _save_state()
     inventory.add_event("upload", f"Uploaded {saved} config file(s) via "
                         f"{os.path.basename(f.filename)}.")
     return jsonify({"saved": saved, "active_source": "ingested"})
@@ -278,6 +312,7 @@ def ssh_pull():
 @app.route("/api/reset-source", methods=["POST"])
 def reset_source():
     STATE["active_source"] = "local"
+    _save_state()
     return jsonify({"active_source": "local"})
 
 

@@ -371,17 +371,21 @@ const WELCOME = '<div class="turn bot"><div class="who">CamNet</div><div class="
   '</div></div>';
 
 function newChat(){
-  CURRENT_SID=null; $('chat').innerHTML=WELCOME;
+  CURRENT_SID=null; try{localStorage.removeItem('camnet_sid');}catch(e){}
+  $('chat').innerHTML=WELCOME;
   document.querySelectorAll('.chatitem').forEach(x=>x.classList.remove('active'));
   $('msg').focus();
 }
 async function loadChat(sid){
-  CURRENT_SID=sid;
-  const s=await (await fetch('/api/chats/'+sid)).json();
-  $('chat').innerHTML='';
-  (s.messages||[]).forEach(m=>addTurn(m.text, m.role==='user'?'user':'bot'));
-  if(!s.messages||!s.messages.length) $('chat').innerHTML=WELCOME;
-  refreshChats();
+  try{
+    const s=await (await fetch('/api/chats/'+sid)).json();
+    if(s.error){ if(CURRENT_SID===sid) newChat(); return; }
+    CURRENT_SID=sid; try{localStorage.setItem('camnet_sid',sid);}catch(e){}
+    $('chat').innerHTML='';
+    (s.messages||[]).forEach(m=>addTurn(m.text, m.role==='user'?'user':'bot'));
+    if(!s.messages||!s.messages.length) $('chat').innerHTML=WELCOME;
+    refreshChats();
+  }catch(e){}
 }
 async function delChat(sid, ev){
   ev.stopPropagation();
@@ -416,7 +420,7 @@ async function send(){
     const r=await (await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({message:text, session_id:CURRENT_SID})})).json();
     tip.remove(); addTurn(r.reply,'bot',r.attachments);
-    if(r.session_id) CURRENT_SID=r.session_id;
+    if(r.session_id){ CURRENT_SID=r.session_id; try{localStorage.setItem('camnet_sid',r.session_id);}catch(e){} }
     refreshChats(); refreshAll();
   }catch(e){tip.remove();addTurn('Error: '+e,'bot');}
 }
@@ -477,6 +481,7 @@ async function refreshHealth(){
     led('led-bf',h.batfish);$('s-bf').textContent=h.batfish?'ready':'starting';
     led('led-gm',h.gemini);$('s-gm').textContent=h.gemini?'live':'mock';
     $('s-src').textContent=h.active_source;$('s-dev').textContent=h.device_count;
+    if(h.overall) setBadge(h.overall);
   }catch(e){led('led-bf',false);}
 }
 function led(id,on){$(id).className='led '+(on?'on':'off');}
@@ -640,6 +645,12 @@ async function refreshLogs(){
 }
 
 function refreshAll(){refreshHealth();refreshInventory();refreshLogs();}
+
+// Restore the previous session on refresh so the conversation isn't lost.
+(function restore(){
+  let sid=null; try{sid=localStorage.getItem('camnet_sid');}catch(e){}
+  if(sid) loadChat(sid);
+})();
 refreshAll();refreshChats();setInterval(refreshHealth,8000);
 </script>
 </body>
